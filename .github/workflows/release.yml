@@ -6,6 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      tag_name:
+        description: 'Release tag name (e.g. v1.0.0)'
+        required: true
+        type: string
       draft:
         description: 'Publish release as draft'
         required: true
@@ -87,6 +91,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: artifacts/*
           draft: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.draft == 'true' }}
           generate_release_notes: true
