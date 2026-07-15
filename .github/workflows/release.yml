@@ -214,7 +214,9 @@ jobs:
             echo "Tag $RELEASE_VERSION already exists on origin."
           else
             git tag "$RELEASE_VERSION" "$GITHUB_SHA"
-            git push origin "$RELEASE_VERSION"
+            # Push, gracefully handling a race where a concurrent run pushed the same tag first
+            git push origin "$RELEASE_VERSION" || \
+              git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_VERSION" >/dev/null 2>&1
           fi
           echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
 
