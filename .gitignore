@@ -1,0 +1,36 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Platform tools (downloaded automatically)
+platform-tools/
+platform-tools.zip
+
+# Temp files
+apk_mitm_*/
+*.apks_extracted/
+*.apks
+
+# Configuration files
+config.json
+
+# Build artifacts and crash logs
+build/
+dist/
+*.spec
+crash.log
+logs/
+
+# OS generated files
+.DS_Store
+Thumbs.db
