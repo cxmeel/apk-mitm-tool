@@ -83,6 +83,7 @@ jobs:
     env:
       APP_VERSION: ${{ needs.prepare.outputs.version }}
       APP_VERSION_NUMBER: ${{ needs.prepare.outputs.version_number }}
+      PYINSTALLER_COMMON_ARGS: --noconsole --onefile --hidden-import tkinterdnd2 --collect-all tkinterdnd2 main.py --name apk-mitm-tool
     strategy:
       matrix:
         include:
@@ -122,6 +123,7 @@ jobs:
           import os
 
           major, minor, patch = os.environ["APP_VERSION_NUMBER"].split(".")
+          version_string = os.environ["APP_VERSION_NUMBER"]
           version_info = f"""VSVersionInfo(
             ffi=FixedFileInfo(
               filevers=({major}, {minor}, {patch}, 0),
@@ -140,11 +142,11 @@ jobs:
                   [
                     StringStruct('CompanyName', 'cxmeel'),
                     StringStruct('FileDescription', 'APK MITM Utility'),
-                    StringStruct('FileVersion', '{os.environ["APP_VERSION_NUMBER"]}'),
+                    StringStruct('FileVersion', '{version_string}'),
                     StringStruct('InternalName', 'apk-mitm-tool'),
                     StringStruct('OriginalFilename', 'apk-mitm-tool.exe'),
                     StringStruct('ProductName', 'APK MITM Utility'),
-                    StringStruct('ProductVersion', '{os.environ["APP_VERSION_NUMBER"]}')
+                    StringStruct('ProductVersion', '{version_string}')
                   ]
                 )
               ]),
@@ -159,7 +161,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          pyinstaller --noconsole --onefile --hidden-import tkinterdnd2 --collect-all tkinterdnd2 --add-data "VERSION${{ matrix.data_separator }}." --version-file pyinstaller-version-info.txt main.py --name apk-mitm-tool
+          pyinstaller $PYINSTALLER_COMMON_ARGS --add-data "VERSION${{ matrix.data_separator }}." --version-file pyinstaller-version-info.txt
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -172,7 +174,7 @@ jobs:
       - name: Build with PyInstaller (macOS & Linux)
         if: runner.os != 'Windows'
         run: |
-          pyinstaller --noconsole --onefile --hidden-import tkinterdnd2 --collect-all tkinterdnd2 --add-data "VERSION${{ matrix.data_separator }}." main.py --name apk-mitm-tool
+          pyinstaller $PYINSTALLER_COMMON_ARGS --add-data "VERSION${{ matrix.data_separator }}."
 
       - name: Package (macOS & Linux)
         if: runner.os != 'Windows'
