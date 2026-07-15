@@ -6,47 +6,22 @@ import subprocess
 import urllib.request
 import platform
 
-def get_app_data_dir():
-    if platform.system() == 'Windows':
-        base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
-        return os.path.join(base, 'apk-mitm-tool')
-    else:
-        return os.path.join(os.path.expanduser('~'), '.apk-mitm-tool')
-
-APP_DATA_DIR = get_app_data_dir()
-ADB_DIR = os.path.join(APP_DATA_DIR, 'platform-tools')
+ADB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'platform-tools')
 
 def get_adb_path():
-    # 1. Check if ADB is in the persistent directory
+    # 1. Check if ADB is in the bundled directory
     local_adb = os.path.join(ADB_DIR, 'adb.exe' if platform.system() == 'Windows' else 'adb')
     if os.path.exists(local_adb):
         return local_adb
     
-    # 2. Check if ADB is in PATH (validate before returning)
+    # 2. Check if ADB is in PATH
     system_adb = shutil.which('adb')
-    if system_adb and is_adb_valid(system_adb):
+    if system_adb:
         return system_adb
     
     return None
 
-def is_adb_valid(adb_path):
-    try:
-        kwargs = {}
-        if platform.system() == 'Windows':
-            kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
-        res = subprocess.run([adb_path, "version"], capture_output=True, **kwargs)
-        return res.returncode == 0
-    except Exception:
-        return False
-
-def ensure_adb(log_callback=None):
-    local_adb = os.path.join(ADB_DIR, 'adb.exe' if platform.system() == 'Windows' else 'adb')
-    system_adb = shutil.which('adb')
-    
-    # If the user has a system-wide ADB, we'll just use that and skip our own updates.
-    if system_adb and is_adb_valid(system_adb):
-        return system_adb
-
+def download_adb(log_callback=None):
     system = platform.system().lower()
     if system == 'windows':
         url = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
@@ -56,70 +31,44 @@ def ensure_adb(log_callback=None):
         url = "https://dl.google.com/android/repository/platform-tools-latest-linux.zip"
     else:
         raise Exception(f"Unsupported OS for automatic ADB download: {system}")
-        
-    etag_file = os.path.join(APP_DATA_DIR, 'adb_etag.txt')
-    current_etag = ""
-    if os.path.exists(etag_file):
-        with open(etag_file, 'r') as f:
-            current_etag = f.read().strip()
-
-    is_valid = os.path.exists(local_adb) and is_adb_valid(local_adb)
     
-    remote_etag = None
-    try:
-        req = urllib.request.Request(url, method='HEAD')
-        with urllib.request.urlopen(req, timeout=5) as res:
-            remote_etag = res.headers.get('ETag', '').strip('"')
-    except Exception:
-        pass # Ignore network errors during update check
-        
-    if is_valid and (not remote_etag or remote_etag == current_etag):
-        return local_adb
-        
+    zip_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "platform-tools.zip")
+    
     if log_callback:
-        if not is_valid:
-            log_callback("ADB missing or corrupted. Downloading...\n")
-        else:
-            log_callback("A new version of ADB is available. Updating...\n")
-            
-    os.makedirs(APP_DATA_DIR, exist_ok=True)
-    zip_path = os.path.join(APP_DATA_DIR, "platform-tools.zip")
+        log_callback(f"Downloading ADB from {url}...")
     
     try:
         import requests
-        response = requests.get(url, stream=True, timeout=30)
+        response = requests.get(url, stream=True)
         response.raise_for_status()
         with open(zip_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
     except ImportError:
+        # Fallback if requests is not installed
         urllib.request.urlretrieve(url, zip_path)
-        
+    
     if log_callback:
-        log_callback("Extracting ADB...\n")
+        log_callback("Extracting ADB...")
         
-    shutil.rmtree(ADB_DIR, ignore_errors=True)
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(APP_DATA_DIR)
+        zip_ref.extractall(os.path.dirname(os.path.abspath(__file__)))
         
     os.remove(zip_path)
     
-    if remote_etag:
-        with open(etag_file, 'w') as f:
-            f.write(remote_etag)
-            
-    if system != 'windows' and os.path.exists(local_adb):
-        os.chmod(local_adb, 0o755)
-
-    if not os.path.exists(local_adb) or not is_adb_valid(local_adb):
-        raise Exception(f"ADB extraction failed or binary not found at: {local_adb}")
-
-    return local_adb
+    adb_path = get_adb_path()
+    if adb_path and system != 'windows':
+        os.chmod(adb_path, 0o755)
+        
+    if log_callback:
+        log_callback(f"ADB downloaded to {adb_path}")
+        
+    return adb_path
 
 def run_adb_command(args, log_callback=None, check=True):
     adb = get_adb_path()
     if not adb:
-        adb = ensure_adb(log_callback)
+        adb = download_adb(log_callback)
         
     cmd = [adb] + args
     if log_callback:

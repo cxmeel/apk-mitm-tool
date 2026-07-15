@@ -2,8 +2,8 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       draft:
@@ -16,90 +16,22 @@ permissions:
   contents: write
 
 jobs:
-  prepare:
-    name: Determine Release Version
-    runs-on: ubuntu-latest
-    outputs:
-      should_release: ${{ steps.version.outputs.should_release }}
-      version: ${{ steps.version.outputs.version }}
-      version_number: ${{ steps.version.outputs.version_number }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.10'
-
-      - name: Determine version bump
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          version="$(python - <<'PY'
-          import versioning
-          print(versioning.read_version())
-          PY
-          )"
-          latest_tag="$(git tag --list 'v*' --sort=-version:refname | head -n 1 || true)"
-
-          python - "$version" "$latest_tag" <<'PY'
-          import sys
-          import versioning
-
-          current = sys.argv[1]
-          latest = sys.argv[2].strip()
-
-          versioning.validate_version(current)
-          if latest:
-              versioning.validate_version(latest)
-              if versioning.parse_version(current) < versioning.parse_version(latest):
-                  raise SystemExit(
-                      f"VERSION {current} is lower than the latest existing tag {latest}."
-                  )
-          PY
-
-          should_release=false
-          if [ -z "$latest_tag" ] || [ "$version" != "$latest_tag" ]; then
-            should_release=true
-          fi
-
-          echo "Latest tag: ${latest_tag:-<none>}"
-          echo "Manifest version: $version"
-          echo "should_release=$should_release" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "version_number=${version#v}" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: prepare
-    if: needs.prepare.outputs.should_release == 'true'
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    env:
-      APP_VERSION: ${{ needs.prepare.outputs.version }}
-      APP_VERSION_NUMBER: ${{ needs.prepare.outputs.version_number }}
-      PYINSTALLER_COMMON_ARGS: --noconsole --onefile --hidden-import tkinterdnd2 --collect-all tkinterdnd2 main.py --name apk-mitm-tool
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
-            platform_name: linux
+            asset_name: apk-mitm-tool-linux-amd64.tar.gz
             bin_name: apk-mitm-tool
-            data_separator: ':'
           - os: windows-latest
-            platform_name: windows
+            asset_name: apk-mitm-tool-windows-amd64.zip
             bin_name: apk-mitm-tool.exe
-            data_separator: ';'
           - os: macos-latest
-            platform_name: macos
+            asset_name: apk-mitm-tool-macos-amd64.tar.gz
             bin_name: apk-mitm-tool
-            data_separator: ':'
-
+            
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -115,110 +47,36 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Generate Windows version metadata
-        if: runner.os == 'Windows'
-        shell: bash
+      - name: Build with PyInstaller
         run: |
-          python - <<'PY'
-          import os
-
-          major, minor, patch = os.environ["APP_VERSION_NUMBER"].split(".")
-          version_string = os.environ["APP_VERSION_NUMBER"]
-          version_info = f"""VSVersionInfo(
-            ffi=FixedFileInfo(
-              filevers=({major}, {minor}, {patch}, 0),
-              prodvers=({major}, {minor}, {patch}, 0),
-              mask=0x3f,
-              flags=0x0,
-              OS=0x40004,
-              fileType=0x1,
-              subtype=0x0,
-              date=(0, 0)
-            ),
-            kids=[
-              StringFileInfo([
-                StringTable(
-                  '040904B0',
-                  [
-                    StringStruct('CompanyName', 'cxmeel'),
-                    StringStruct('FileDescription', 'APK MITM Utility'),
-                    StringStruct('FileVersion', '{version_string}'),
-                    StringStruct('InternalName', 'apk-mitm-tool'),
-                    StringStruct('OriginalFilename', 'apk-mitm-tool.exe'),
-                    StringStruct('ProductName', 'APK MITM Utility'),
-                    StringStruct('ProductVersion', '{version_string}')
-                  ]
-                )
-              ]),
-              VarFileInfo([VarStruct('Translation', [1033, 1200])])
-            ]
-          )"""
-          with open("pyinstaller-version-info.txt", "w", encoding="utf-8") as version_file:
-              version_file.write(version_info)
-          PY
-
-      - name: Build with PyInstaller (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          pyinstaller $PYINSTALLER_COMMON_ARGS --add-data "VERSION${{ matrix.data_separator }}." --version-file pyinstaller-version-info.txt
+          pyinstaller --noconsole --onefile --hidden-import tkinterdnd2 --collect-all tkinterdnd2 main.py --name apk-mitm-tool
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
-          $assetName = "apk-mitm-tool-${env:APP_VERSION}-${{ matrix.platform_name }}-amd64.zip"
           cd dist
-          Compress-Archive -Path ${{ matrix.bin_name }} -DestinationPath "../$assetName"
+          Compress-Archive -Path ${{ matrix.bin_name }} -DestinationPath ../${{ matrix.asset_name }}
         shell: powershell
-
-      - name: Build with PyInstaller (macOS & Linux)
-        if: runner.os != 'Windows'
-        run: |
-          pyinstaller $PYINSTALLER_COMMON_ARGS --add-data "VERSION${{ matrix.data_separator }}."
 
       - name: Package (macOS & Linux)
         if: runner.os != 'Windows'
         run: |
-          asset_name="apk-mitm-tool-${APP_VERSION}-${{ matrix.platform_name }}-amd64.tar.gz"
           cd dist
-          tar -czf "../${asset_name}" "${{ matrix.bin_name }}"
+          tar -czf ../${{ matrix.asset_name }} ${{ matrix.bin_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: apk-mitm-tool-${{ env.APP_VERSION }}-${{ matrix.platform_name }}-amd64
-          path: apk-mitm-tool-${{ env.APP_VERSION }}-${{ matrix.platform_name }}-amd64*
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
 
   release:
     name: Create Release
-    needs:
-      - prepare
-      - build
-    if: needs.prepare.outputs.should_release == 'true'
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Create release tag
-        id: tag
-        env:
-          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          set -euo pipefail
-
-          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_VERSION" >/dev/null 2>&1; then
-            echo "Tag $RELEASE_VERSION already exists on origin."
-          else
-            git tag "$RELEASE_VERSION" "$GITHUB_SHA"
-            # Push, gracefully handling a race where a concurrent run pushed the same tag first
-            git push origin "$RELEASE_VERSION" || \
-              git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_VERSION" >/dev/null 2>&1
-          fi
-          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Download artifacts
         uses: actions/download-artifact@v8
@@ -229,7 +87,6 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.prepare.outputs.version }}
           files: artifacts/*
           draft: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.draft == 'true' }}
           generate_release_notes: true

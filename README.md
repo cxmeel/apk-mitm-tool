@@ -12,7 +12,6 @@ A cross-platform graphical user interface (GUI) wrapper for the powerful [apk-mi
 ## Prerequisites
 - **Python 3.8+**
 - **Node.js** (Required for the underlying `apk-mitm` tool. A Node package manager like `npx`, `pnpx`, `yarn`, or `bunx` must be in your PATH).
-  - *Note: If you installed Node.js using a version manager like `fnm` or `nvm`, Node may only be available in your terminal profile. If you launch the pre-compiled `.exe` by double-clicking it from Windows Explorer, it will not have access to your terminal's `PATH` and will fail to find Node. To fix this, either launch the `.exe` directly from your PowerShell terminal, or open the app's **Advanced Settings** and set a Custom Executor Path pointing to your `npx.cmd` file.*
 
 ## Quick Start
 

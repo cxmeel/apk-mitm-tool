@@ -34,5 +34,3 @@ logs/
 # OS generated files
 .DS_Store
 Thumbs.db
-test_subprocess*
-test_output.txt
