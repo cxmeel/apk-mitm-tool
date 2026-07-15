@@ -77,7 +77,7 @@ class App(TkinterDnD.Tk):
                 # Fallback to shell resolution for PyInstaller exes where PATH might be wonky
                 flags = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
                 res = subprocess.run(
-                    [cmd, "--version"], 
+                    f"{cmd} --version",
                     capture_output=True, 
                     shell=True, 
                     creationflags=flags,
@@ -89,6 +89,17 @@ class App(TkinterDnD.Tk):
 
         custom_executor = self.app_config.get("custom_executor_path")
         if custom_executor and os.path.isfile(custom_executor):
+            # Validate that the basename matches a supported executor
+            SUPPORTED_EXECUTORS = {"npx", "pnpx", "yarn", "bunx"}
+            exec_basename = os.path.splitext(os.path.basename(custom_executor))[0].lower()
+            if exec_basename not in SUPPORTED_EXECUTORS:
+                if show_prompt:
+                    messagebox.showwarning(
+                        "Unsupported Executor",
+                        f"'{os.path.basename(custom_executor)}' is not a supported executor.\n\nPlease use npx, pnpx, yarn, or bunx."
+                    )
+                return None
+
             # Inject the executor's directory into PATH so wrappers like npx.cmd can find node.exe
             exec_dir = os.path.dirname(custom_executor)
             current_path = os.environ.get("PATH", "")

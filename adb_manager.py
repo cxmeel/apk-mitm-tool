@@ -22,9 +22,9 @@ def get_adb_path():
     if os.path.exists(local_adb):
         return local_adb
     
-    # 2. Check if ADB is in PATH
+    # 2. Check if ADB is in PATH (validate before returning)
     system_adb = shutil.which('adb')
-    if system_adb:
+    if system_adb and is_adb_valid(system_adb):
         return system_adb
     
     return None
@@ -68,8 +68,8 @@ def ensure_adb(log_callback=None):
     remote_etag = None
     try:
         req = urllib.request.Request(url, method='HEAD')
-        res = urllib.request.urlopen(req, timeout=5)
-        remote_etag = res.headers.get('ETag', '').strip('"')
+        with urllib.request.urlopen(req, timeout=5) as res:
+            remote_etag = res.headers.get('ETag', '').strip('"')
     except Exception:
         pass # Ignore network errors during update check
         
@@ -110,7 +110,10 @@ def ensure_adb(log_callback=None):
             
     if system != 'windows' and os.path.exists(local_adb):
         os.chmod(local_adb, 0o755)
-        
+
+    if not os.path.exists(local_adb) or not is_adb_valid(local_adb):
+        raise Exception(f"ADB extraction failed or binary not found at: {local_adb}")
+
     return local_adb
 
 def run_adb_command(args, log_callback=None, check=True):

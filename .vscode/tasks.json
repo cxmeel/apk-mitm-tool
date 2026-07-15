@@ -13,11 +13,26 @@
                 "--collect-all",
                 "tkinterdnd2",
                 "--add-data",
-                "VERSION;.",
+                "VERSION:.",
                 "main.py",
                 "--name",
                 "apk-mitm-tool"
             ],
+            "windows": {
+                "args": [
+                    "--noconsole",
+                    "--onefile",
+                    "--hidden-import",
+                    "tkinterdnd2",
+                    "--collect-all",
+                    "tkinterdnd2",
+                    "--add-data",
+                    "VERSION;.",
+                    "main.py",
+                    "--name",
+                    "apk-mitm-tool"
+                ]
+            },
             "group": {
                 "kind": "build",
                 "isDefault": true
