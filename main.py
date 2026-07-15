@@ -11,6 +11,7 @@ import platform
 import adb_manager
 import patcher
 import config
+import versioning
 
 class App(TkinterDnD.Tk):
     def __init__(self):
@@ -21,7 +22,12 @@ class App(TkinterDnD.Tk):
         if not self.executor_cmd:
             sys.exit(1)
 
-        self.title("APK MITM Utility")
+        try:
+            self.app_version = versioning.read_version()
+        except (OSError, ValueError):
+            self.app_version = "unknown"
+
+        self.title(f"APK MITM Utility {self.app_version}")
         self.geometry("600x500")
 
         self.selected_apk_path = tk.StringVar()
@@ -44,7 +50,10 @@ class App(TkinterDnD.Tk):
         self.drop_target_register(DND_FILES)
         self.dnd_bind('<<Drop>>', self.on_drop)
         
-        self.log(f"Node.js verified. Using '{' '.join(self.executor_cmd)}' for apk-mitm.\n")
+        self.log(
+            f"APK MITM Utility {self.app_version}\n"
+            f"Node.js verified. Using '{' '.join(self.executor_cmd)}' for apk-mitm.\n"
+        )
         
     def open_settings(self):
         SettingsDialog(self)

@@ -36,6 +36,19 @@ A cross-platform graphical user interface (GUI) wrapper for the powerful [apk-mi
    - Click "Patch APK".
    - Once complete, click "Install Patched APK" to push it directly back to your device.
 
+## Release Versioning
+
+- The canonical app/release version lives in `VERSION` and is currently `v0.1.0`.
+- GitHub Actions now checks that manifest on pushes to `main` and only builds/releases when the version changes from the latest published tag.
+- To publish a new release, bump the version in `VERSION` using the `vX.Y.Z` format and push the change to `main`.
+- Release tags are created automatically from that manifest version, and Windows binaries receive matching file/product version metadata.
+
+## Binary Signing
+
+- GitHub Actions does not automatically Authenticode-sign Windows executables.
+- GitHub artifact attestations/provenance can help prove how a binary was built, but they do not replace Windows code signing or SmartScreen reputation.
+- To reduce Windows Defender/SmartScreen warnings, add a real code-signing step in CI using your signing certificate or a managed signing service.
+
 ## Attribution
 This GUI is a wrapper built around the amazing [apk-mitm](https://github.com/niklashigi/apk-mitm) command-line tool created by [niklashigi](https://github.com/niklashigi). All core certificate patching logic is handled by their tool!
 
