@@ -11,24 +11,29 @@ import platform
 import adb_manager
 import patcher
 import config
+import versioning
 
 class App(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
         
+        self.app_config = config.load_config()
+        
         # Check Node.js and select executor
-        self.executor_cmd = self.check_node_and_executor()
-        if not self.executor_cmd:
-            sys.exit(1)
+        self.executor_cmd = self.check_node_and_executor(show_prompt=True)
 
-        self.title("APK MITM Utility")
+        try:
+            self.app_version = versioning.read_version()
+        except (OSError, ValueError):
+            self.app_version = "unknown"
+
+        self.title(f"APK MITM Utility {self.app_version}")
         self.geometry("600x500")
 
         self.selected_apk_path = tk.StringVar()
         self.patched_apk_path = None
         self.temp_dir = tempfile.mkdtemp(prefix="apk_mitm_")
         self.is_patching = False
-        self.app_config = config.load_config()
         self.current_patch_task = None
         
         # Menu bar
@@ -44,27 +49,69 @@ class App(TkinterDnD.Tk):
         self.drop_target_register(DND_FILES)
         self.dnd_bind('<<Drop>>', self.on_drop)
         
-        self.log(f"Node.js verified. Using '{' '.join(self.executor_cmd)}' for apk-mitm.\n")
-        
+        if self.executor_cmd:
+            self.log(
+                f"APK MITM Utility {self.app_version}\n"
+                f"Node.js verified. Using '{' '.join(self.executor_cmd)}' for apk-mitm.\n"
+            )
+        else:
+            self.log(
+                f"APK MITM Utility {self.app_version}\n"
+                f"Warning: Node.js was not automatically found. Please configure a custom executor path in Settings before patching.\n"
+            )
+            
     def open_settings(self):
         SettingsDialog(self)
         
-    def check_node_and_executor(self):
+    def check_node_and_executor(self, show_prompt=True):
         import subprocess
         
         def is_installed(cmd):
+            custom_path = self.app_config.get("custom_executor_path")
+            if custom_path and cmd in custom_path.lower():
+                return True
+            
             if shutil.which(cmd):
                 return True
             try:
                 # Fallback to shell resolution for PyInstaller exes where PATH might be wonky
                 flags = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
-                res = subprocess.run([cmd, "--version"], capture_output=True, shell=True, creationflags=flags)
+                res = subprocess.run(
+                    f"{cmd} --version",
+                    capture_output=True, 
+                    shell=True, 
+                    creationflags=flags,
+                    stdin=subprocess.DEVNULL
+                )
                 return res.returncode == 0
             except Exception:
                 return False
 
+        custom_executor = self.app_config.get("custom_executor_path")
+        if custom_executor and os.path.isfile(custom_executor):
+            # Validate that the basename matches a supported executor
+            SUPPORTED_EXECUTORS = {"npx", "pnpx", "yarn", "bunx"}
+            exec_basename = os.path.splitext(os.path.basename(custom_executor))[0].lower()
+            if exec_basename not in SUPPORTED_EXECUTORS:
+                if show_prompt:
+                    messagebox.showwarning(
+                        "Unsupported Executor",
+                        f"'{os.path.basename(custom_executor)}' is not a supported executor.\n\nPlease use npx, pnpx, yarn, or bunx."
+                    )
+                return None
+
+            # Inject the executor's directory into PATH so wrappers like npx.cmd can find node.exe
+            exec_dir = os.path.dirname(custom_executor)
+            current_path = os.environ.get("PATH", "")
+            if exec_dir not in current_path:
+                os.environ["PATH"] = f"{exec_dir}{os.pathsep}{current_path}"
+                
+            # We assume it's npx, pnpx, yarn, etc based on the filename
+            return [custom_executor, "-y"] if "yarn" not in custom_executor.lower() else [custom_executor, "dlx"]
+
         if not is_installed("node"):
-            messagebox.showerror("Node.js Required", "Node.js is not installed or not in PATH.\n\nPlease install Node.js from https://nodejs.org/ and relaunch the application.")
+            if show_prompt:
+                messagebox.showwarning("Node.js Not Found", "Node.js is not installed or not in PATH.\n\nYou will need to specify a custom executor path (e.g. npx) in the Advanced Settings menu to use this application.")
             return None
             
         if is_installed("npx"):
@@ -76,7 +123,8 @@ class App(TkinterDnD.Tk):
         elif is_installed("bunx"):
             return ["bunx", "-y"]
             
-        messagebox.showerror("Executor Required", "Could not find npx, pnpx, yarn, or bunx in PATH.\n\nPlease install a Node package manager.")
+        if show_prompt:
+            messagebox.showwarning("Executor Required", "Could not find npx, pnpx, yarn, or bunx in PATH.\n\nPlease install a Node package manager.")
         return None
 
     def create_widgets(self):
@@ -180,10 +228,7 @@ class App(TkinterDnD.Tk):
 
     def init_adb(self):
         try:
-            adb_path = adb_manager.get_adb_path()
-            if not adb_path:
-                self.log("ADB not found. Downloading platform-tools...\n")
-                adb_path = adb_manager.download_adb(log_callback=lambda msg: self.log(msg + "\n"))
+            adb_path = adb_manager.ensure_adb(log_callback=lambda msg: self.log(msg))
             self.log(f"ADB is ready: {adb_path}\n\n")
             # Schedule initial device refresh on main thread
             self.after(0, self.refresh_devices)
@@ -344,6 +389,13 @@ class App(TkinterDnD.Tk):
         threading.Thread(target=pull_thread, daemon=True).start()
 
     def start_patching(self):
+        if not self.executor_cmd:
+            self.executor_cmd = self.check_node_and_executor(show_prompt=False)
+            if not self.executor_cmd:
+                messagebox.showerror("Executor Required", "You must configure a custom Node executor path in Settings because it was not automatically found on your system.")
+                self.open_settings()
+                return
+
         apk_path = self.selected_apk_path.get()
         if not apk_path or not os.path.exists(apk_path):
             messagebox.showwarning("Warning", "Please select a valid APK file first.")
@@ -538,12 +590,22 @@ class SettingsDialog(tk.Toplevel):
         # Custom Certificate
         tk.Label(main_frame, text="Custom Certificate (.pem / .der) for Network Security Config:").pack(anchor=tk.W)
         cert_frame = tk.Frame(main_frame)
-        cert_frame.pack(fill=tk.X, pady=(0,15))
+        cert_frame.pack(fill=tk.X, pady=(0,10))
         
         self.cert_var = tk.StringVar(value=self.cfg.get("custom_certificate_path", ""))
         tk.Entry(cert_frame, textvariable=self.cert_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         tk.Button(cert_frame, text="Browse", command=self.browse_cert).pack(side=tk.LEFT, padx=5)
         tk.Button(cert_frame, text="Clear", command=lambda: self.cert_var.set("")).pack(side=tk.LEFT)
+        
+        # Custom Executor (npx/pnpx/etc)
+        tk.Label(main_frame, text="Custom Executor Path (e.g. path to npx.cmd):").pack(anchor=tk.W)
+        exec_frame = tk.Frame(main_frame)
+        exec_frame.pack(fill=tk.X, pady=(0,15))
+        
+        self.exec_var = tk.StringVar(value=self.cfg.get("custom_executor_path", ""))
+        tk.Entry(exec_frame, textvariable=self.exec_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Button(exec_frame, text="Browse", command=self.browse_exec).pack(side=tk.LEFT, padx=5)
+        tk.Button(exec_frame, text="Clear", command=lambda: self.exec_var.set("")).pack(side=tk.LEFT)
         
         # Maps API Keys
         tk.Label(main_frame, text="Google Maps API Keys:").pack(anchor=tk.W)
@@ -573,6 +635,14 @@ class SettingsDialog(tk.Toplevel):
         )
         if filename:
             self.cert_var.set(filename)
+            
+    def browse_exec(self):
+        filename = filedialog.askopenfilename(
+            title="Select Executor (npx/pnpx)",
+            filetypes=(("Executables", "*.exe *.cmd *.bat"), ("All files", "*.*"))
+        )
+        if filename:
+            self.exec_var.set(filename)
             
     def refresh_maps_combo(self):
         keys = self.cfg.get("maps_api_keys", {})
@@ -610,12 +680,19 @@ class SettingsDialog(tk.Toplevel):
     def save(self):
         self.cfg["wait_for_manual_changes"] = self.wait_var.get()
         self.cfg["custom_certificate_path"] = self.cert_var.get()
+        self.cfg["custom_executor_path"] = self.exec_var.get()
         self.cfg["selected_maps_api_key_name"] = self.maps_combo.get()
         
         # Save to parent and disk
         self.parent.app_config = self.cfg
         import config
         config.save_config(self.cfg)
+        
+        # Update executor dynamically
+        self.parent.executor_cmd = self.parent.check_node_and_executor(show_prompt=False)
+        if self.parent.executor_cmd:
+            self.parent.log(f"Executor updated: Using '{' '.join(self.parent.executor_cmd)}'\n")
+        
         self.destroy()
 
 def global_exception_handler(exc_type, exc_value, exc_traceback):
